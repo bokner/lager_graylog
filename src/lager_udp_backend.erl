@@ -59,10 +59,10 @@ init(Params)->
 
     Host         = proplists:get_value(host,Params,undefined),
     Port         = proplists:get_value(port,Params,undefined),
+    
+    Name         = proplists:get_value(name, Params, {Host,Port}),  
 
-    Name         = proplists:get_value(name, Params, {Host,Port}),
-
-
+    
     check_config({host,Host}),
     check_config({port,Port}),
     check_config({level,Level}),
@@ -72,12 +72,12 @@ init(Params)->
     % will start bouncing
     {ok,Socket} = gen_udp:open(0,[binary,{active,false}]),
 
-    {ok, #state{level=lager_util:level_to_num(Level),
+    {ok, #state{level=lager_util:level_to_num(Level), 
         name={?MODULE,Name},
         address=Address,
         port=Port,
         socket=Socket,
-        formatter=Formatter,
+        formatter=Formatter, 
         format_config=FormatConfig}
     }.
 
@@ -96,11 +96,16 @@ handle_call(_Request, State) ->
     {ok, ok, State}.
 
 %% @private
-handle_event(Message,#state{level=L,formatter=Formatter,format_config=FormatConfig} = State) ->
-    {log, MessageInner} = Message,
-    Msg=Formatter:format(MessageInner,FormatConfig),
-    ok=gen_udp:send(State#state.socket,State#state.address,State#state.port,Msg),
-    {ok, State};
+handle_event({log, Message}, #state{level=L,formatter=Formatter,format_config=FormatConfig} = State) ->
+    case lager_util:is_loggable(Message, L, State#state.name) 
+		of
+        true ->
+            Msg=Formatter:format(Message,FormatConfig),
+            ok=gen_udp:send(State#state.socket,State#state.address,State#state.port,Msg),
+            {ok, State};
+        false ->
+            {ok, State}
+    end;
 handle_event(_Event, State) ->
     {ok, State}.
 
@@ -124,7 +129,7 @@ do_init() ->
     % Test pretends to be the server, open a server connection
     {ok,Socket}=gen_udp:open(0,[binary,{active,true}]),
     {ok,{Address,Port}}=inet:sockname(Socket),
-
+    
     % configure to talk to the test
     ?MODULE:init(?TEST_CONFIG(Address,Port)).
 
@@ -133,7 +138,7 @@ basic_test_() ->
      {"regular logging",
       fun() ->
               {ok,State}=do_init(),
-
+              
               % Send a message
               ?MODULE:handle_event(#lager_log_message{message= <<"Test message">>,severity_as_int=?INFO},State),
               receive
@@ -145,7 +150,7 @@ basic_test_() ->
      {"Test respects severity threshold",
       fun() ->
               {ok,State}=do_init(),
-
+              
               % Send a message
               ?MODULE:handle_event(#lager_log_message{message= <<"Test message">>,severity_as_int=?DEBUG,destinations=[]},State),
               receive
@@ -157,7 +162,7 @@ basic_test_() ->
      {"Test direct destination",
       fun() ->
               {ok,State}=do_init(),
-
+              
               % Send a message
               ?MODULE:handle_event(#lager_log_message{message= <<"Test message">>,severity_as_int=?DEBUG,destinations=[{?MODULE,test}]},State),
               receive
